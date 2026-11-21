@@ -101,6 +101,15 @@ try:
         ("unterminated-text.bin", raw_payload("unterminated-text.bin",
          struct.pack("<16sII", b"cmdline", 3, 0) + b"abc" + b"\0" * 13 + b"\0" * 24),
          "not NUL-terminated"),
+        ("unterminated-name.bin", raw_payload("unterminated-name.bin",
+         struct.pack("<16sII", b"abcdefghijklmnop", 0, 0) + b"\0" * 24),
+         "not NUL-terminated"),
+        ("nonzero-reserved.bin", raw_payload("nonzero-reserved.bin",
+         struct.pack("<16sII", b"kernel", 0, 1) + b"\0" * 24),
+         "nonzero reserved field"),
+        ("noncanonical-name.bin", raw_payload("noncanonical-name.bin",
+         b"kernel\0garbage" + b"\0" * 3 + struct.pack("<II", 0, 0) + b"\0" * 24),
+         "nonzero bytes after its NUL"),
     ]
     for i, (label, path, reason) in enumerate(malformed, 8):
         r = run(os.path.join(work, "bad-esp-%d" % i), path, "--loader", loader)

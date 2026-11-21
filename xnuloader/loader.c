@@ -2618,7 +2618,7 @@ parse_payload(struct payload_info *pi, int verbose)
 	}
 	if (payload_available_bytes != 0 &&
 	    (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph))) {
-		print("payload header size does not match bytes received: not used\\n");
+		print("payload header size does not match bytes received: not used\n");
 		return 0;
 	}
 	/*

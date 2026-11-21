@@ -130,6 +130,30 @@ jobs:
             echo "QEMU returned $qemu_status after producing the expected ESP boot markers."
           fi
 
+      - name: Exercise the loader return-stub self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # checkpoint=999 is a documented loader self-test: it takes the normal kernel
+          # load/boot-args preparation path, then returns through loader_return_stub
+          # without entering XNU. This isolates the saved-UEFI-context round trip.
+          ARGS_OPEN="$(tools/hakios-config.py args --defconfig defconfig)"
+          xnuloader/mkpayload.py -o qemu/payload.bin \
+            kernel=hakios-kernel \
+            ramdisk=userland/hello \
+            --cmdline "$ARGS_OPEN" \
+            --checkpoint 999
+          set +e
+          QEMU_ESP=1 qemu/run.sh 30 2>&1 | tee logs/qemu-return-selftest.log
+          qemu_status=${PIPESTATUS[0]}
+          set -e
+          grep -Fq "payload.bin on the volume this loader was started from" logs/qemu-return-selftest.log
+          grep -Fq "return-path self test passed" logs/qemu-return-selftest.log
+          echo "UEFI context save/restore return-stub self-test passed."
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU returned $qemu_status after producing the expected self-test marker."
+          fi
+
       - name: Upload boot and build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -138,6 +162,7 @@ jobs:
           path: |
             logs/qemu-open.log
             logs/qemu-esp.log
+            logs/qemu-return-selftest.log
             xnu-build.log
             xnu-deps/*.log
           if-no-files-found: warn

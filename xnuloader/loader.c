@@ -2607,13 +2607,13 @@ parse_payload(struct payload_info *pi, int verbose)
 	memset(pi, 0, sizeof(*pi));
 	pi->cmdline = "";
 	if (ph->magic != PAYLOAD_MAGIC) {
-		print("no payload at %x (magic %x)\\n", PAYLOAD_BASE, (uint64_t)ph->magic);
+		print("no payload at %x (magic %x)\n", PAYLOAD_BASE, (uint64_t)ph->magic);
 		return 0;
 	}
 	if ((uint64_t)ph->size > max_body ||
 	    (payload_available_bytes != 0 &&
 	     (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph)))) {
-		print("payload header size is invalid or does not match bytes received: not used\\n");
+		print("payload header size is invalid or does not match bytes received: not used\n");
 		return 0;
 	}
 
@@ -2639,12 +2639,12 @@ parse_payload(struct payload_info *pi, int verbose)
 		if (name_len == 0) {
 			/* The terminator is one all-zero 24-byte entry, and must be last. */
 			if ((uint64_t)(pend - p) != sizeof(*e)) {
-				print("payload terminator is malformed or not final: not used\\n");
+				print("payload terminator is malformed or not final: not used\n");
 				return 0;
 			}
 			for (uint32_t i = 0; i < sizeof(*e); i++) {
 				if (((const uint8_t *)e)[i] != 0) {
-					print("payload terminator is not all zero: not used\\n");
+					print("payload terminator is not all zero: not used\n");
 					return 0;
 				}
 			}
@@ -2653,33 +2653,33 @@ parse_payload(struct payload_info *pi, int verbose)
 			break;
 		}
 		if (name_len == sizeof(e->name) || e->reserved != 0) {
-			print("payload entry name or reserved field is invalid: not used\\n");
+			print("payload entry name or reserved field is invalid: not used\n");
 			return 0;
 		}
 		for (uint32_t i = 0; i < name_len; i++) {
 			unsigned char c = (unsigned char)e->name[i];
 			if (c < 0x20 || c > 0x7e) {
-				print("payload entry name is not printable ASCII: not used\\n");
+				print("payload entry name is not printable ASCII: not used\n");
 				return 0;
 			}
 		}
 		memcpy(entry_name, e->name, name_len);
 		entry_name[name_len] = 0;
 		if (verbose) {
-			print("payload entry '%s' size %x\\n", entry_name, (uint64_t)e->size);
+			print("payload entry '%s' size %x\n", entry_name, (uint64_t)e->size);
 		}
 
 		/* Validate data and 16-byte padding before using or advancing past an entry. */
 		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if ((uint64_t)e->size > remaining || padded > remaining) {
-			print("payload entry exceeds the payload boundary (size %x): not used\\n", (uint64_t)e->size);
+			print("payload entry exceeds the payload boundary (size %x): not used\n", (uint64_t)e->size);
 			return 0;
 		}
 		if ((str_eq(entry_name, "cmdline") || str_eq(entry_name, "physbase") ||
 		     str_eq(entry_name, "rdres") || str_eq(entry_name, "kernel.ver") ||
 		     str_eq(entry_name, "checkpoint") || str_eq(entry_name, "usb")) &&
 		    !payload_text_terminated(entry_data, e->size)) {
-			print("payload text entry is not NUL-terminated: not used\\n");
+			print("payload text entry is not NUL-terminated: not used\n");
 			return 0;
 		}
 		if (str_eq(entry_name, "ramdisk")) {
@@ -2707,7 +2707,7 @@ parse_payload(struct payload_info *pi, int verbose)
 		p = entry_data + padded;
 	}
 	if (!terminated || p != pend) {
-		print("payload has no complete final terminator: not used\\n");
+		print("payload has no complete final terminator: not used\n");
 		return 0;
 	}
 	return 1;

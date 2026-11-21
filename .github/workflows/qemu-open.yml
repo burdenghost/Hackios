@@ -44,7 +44,6 @@ jobs:
     env:
       THEOS: ${{ runner.temp }}/theos
       JOBS: "2"
-      QEMU_MEM: 2G
       QEMU_TB_MB: "128"
     steps:
       - name: Check out HackiOS

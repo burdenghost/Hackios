@@ -4,7 +4,8 @@ as an Android sparse image of the whole of darwin that writes that volume and no
 
 usage: mkdatavol.py OUT.simg [MKFS]      (MKFS: mkfs.hfsplus, default the one in $PATH)
 
-    fastboot flash darwin OUT.simg
+    fastboot \\
+        flash darwin OUT.simg
 
 The kernel gives that stretch of darwin out as /dev/ufs_darwin_data (drivers/storage/hakios.ufs.c, ufs_write=1) and
 init mounts it on /private/var (userland/src/init.c, var_hfs=ufs_darwin_data). Flashing this again empties it.

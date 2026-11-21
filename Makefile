@@ -38,6 +38,8 @@
 
 DEVICE ?= redwood
 JOBS ?= 8
+# xnu-env.sh uses Bash features (notably BASH_SOURCE); make recipes must use Bash.
+SHELL := /bin/bash
 SECS ?= 600
 # qemu-open runs the open configuration: configs/defconfig (nothing of a phone's own, one core)
 ARGS_OPEN ?= $(shell tools/hakios-config.py args --defconfig defconfig)

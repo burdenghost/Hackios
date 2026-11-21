@@ -13,13 +13,26 @@ cd "$(dirname "$0")"
 T=${1:-20}; shift
 # the UEFI firmware: where Arch's edk2-aarch64 puts it, or where Debian and Ubuntu's AAVMF does
 EFI=${QEMU_EFI-}; VARS_SRC=${QEMU_VARS-}
-if [ -z "$EFI" ]; then
-	for f in /usr/share/edk2/aarch64/QEMU_EFI.fd /usr/share/AAVMF/AAVMF_CODE.fd; do [ -f "$f" ] && { EFI=$f; break; }; done
+# Select CODE and VARS as a pair. Mixing QEMU_EFI.fd with AAVMF_VARS.fd can
+# give pflash devices of different sizes, which QEMU rejects at startup.
+if [ -z "$EFI" ] && [ -z "$VARS_SRC" ]; then
+	for pair in \
+		"/usr/share/AAVMF/AAVMF_CODE.fd|/usr/share/AAVMF/AAVMF_VARS.fd" \
+		"/usr/share/edk2/aarch64/QEMU_EFI.fd|/usr/share/edk2/aarch64/QEMU_VARS.fd" \
+		"/usr/share/qemu-efi-aarch64/QEMU_EFI.fd|/usr/share/qemu-efi-aarch64/QEMU_VARS.fd"; do
+		code=${pair%%|*}; vars=${pair#*|}
+		[ -f "$code" ] && [ -f "$vars" ] && { EFI=$code; VARS_SRC=$vars; break; }
+	done
 fi
-if [ -z "$VARS_SRC" ]; then
-	for f in /usr/share/edk2/aarch64/QEMU_VARS.fd /usr/share/AAVMF/AAVMF_VARS.fd; do [ -f "$f" ] && { VARS_SRC=$f; break; }; done
-fi
-[ -f "$EFI" ] || { echo "run.sh: no UEFI firmware found (looked for edk2-aarch64's and AAVMF's); set QEMU_EFI and QEMU_VARS"; exit 1; }
+[ -f "$EFI" ] || { echo "run.sh: no matching AArch64 UEFI CODE image found; set QEMU_EFI and QEMU_VARS"; exit 1; }
+[ -f "$VARS_SRC" ] || { echo "run.sh: no matching AArch64 UEFI VARS image found; set QEMU_EFI and QEMU_VARS"; exit 1; }
+EFI_SIZE=$(wc -c < "$EFI" | tr -d ' ')
+VARS_SIZE=$(wc -c < "$VARS_SRC" | tr -d ' ')
+[ "$EFI_SIZE" = "$VARS_SIZE" ] || {
+	echo "run.sh: mismatched UEFI pflash sizes: CODE=$EFI_SIZE bytes VARS=$VARS_SIZE bytes"
+	echo "run.sh: provide matching firmware images from the same package"
+	exit 1
+}
 cp "$VARS_SRC" vars.fd 2>/dev/null
 # the loader is the boot application of the little FAT volume QEMU makes of esp/:
 # the one built here, or else the one that comes with the repository

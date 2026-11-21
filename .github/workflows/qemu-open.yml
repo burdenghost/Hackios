@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      THEOS: ${{ runner.temp }}/theos
+      THEOS: ${{ github.workspace }}/.theos
       JOBS: "2"
       QEMU_TB_MB: "128"
     steps:
@@ -53,14 +53,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison build-essential clang curl flex git lld \
-            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar xz-utils
+            autoconf automake bison build-essential clang curl fakeroot flex git libtinfo6 libxml2 lld \
+            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar uuid-dev xz-utils zip
 
-      - name: Install Theos Linux toolchain
-        env:
-          CI: "1"
+      - name: Install Theos and its Linux toolchain without the optional SDK auto-installer
         run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          # The convenience installer also fetches its latest patched SDKs through the GitHub API.
+          # This build installs its pinned iPhoneOS 16.5 SDK in the next step, so skip that lookup.
+          git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/toolchain"
+          curl -fL --retry 3 --retry-delay 2 \
+            https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz \
+            | tar -xJf - -C "$THEOS/toolchain/"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -x "$THEOS/toolchain/linux/iphone/bin/ld"
 
@@ -72,12 +76,30 @@ jobs:
           ln -s "$RUNNER_TEMP/theos-sdks/iPhoneOS16.5.sdk" "$THEOS/sdks/iPhoneOS16.5.sdk"
           test -f "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include/Availability.h"
 
-      - name: Locate AArch64 UEFI firmware for QEMU
+      - name: Locate a matching AArch64 UEFI firmware pair for QEMU
         run: |
-          EFI=$(find /usr/share \( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \) -print -quit)
-          VARS=$(find /usr/share \( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \) -print -quit)
-          test -n "$EFI"
-          test -n "$VARS"
+          EFI=
+          VARS=
+          for pair in \
+            "/usr/share/AAVMF/AAVMF_CODE.fd|/usr/share/AAVMF/AAVMF_VARS.fd" \
+            "/usr/share/edk2/aarch64/QEMU_EFI.fd|/usr/share/edk2/aarch64/QEMU_VARS.fd" \
+            "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd|/usr/share/qemu-efi-aarch64/QEMU_VARS.fd"; do
+            code="${pair%%|*}"
+            vars="${pair#*|}"
+            if [ -f "$code" ] && [ -f "$vars" ]; then
+              EFI=$code
+              VARS=$vars
+              break
+            fi
+          done
+          test -n "$EFI" && test -n "$VARS"
+          code_size=$(wc -c < "$EFI" | tr -d ' ')
+          vars_size=$(wc -c < "$VARS" | tr -d ' ')
+          test "$code_size" = "$vars_size" || {
+            echo "UEFI pflash images differ in size: CODE=$code_size VARS=$vars_size"
+            exit 1
+          }
+          echo "Using matching UEFI firmware pair: $EFI ($code_size bytes)"
           echo "QEMU_EFI=$EFI" >> "$GITHUB_ENV"
           echo "QEMU_VARS=$VARS" >> "$GITHUB_ENV"
 
@@ -94,8 +116,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p logs
+          ARGS_OPEN="$(tools/hakios-config.py args --defconfig defconfig) hello_wait=120"
           set +e
-          make qemu-open SECS=90 JOBS="$JOBS" 2>&1 | tee logs/qemu-open.log
+          # Linux QEMU CI does not need an Apple dSYM bundle; keep the unstripped kernel for diagnostics.
+          # Keep PID 1 alive so the minimal kernel does not panic after the demo process exits.
+          make qemu-open SECS=90 JOBS="$JOBS" BUILD_DSYM=0 ARGS_OPEN="$ARGS_OPEN" 2>&1 | tee logs/qemu-open.log
           make_status=${PIPESTATUS[0]}
           set -e
           # qemu/run.sh deliberately times out the guest after SECS; a boot is proven by
@@ -165,7 +190,7 @@ jobs:
           xnuloader/mkpayload.py -o qemu/payload.bin \
             kernel=hakios-kernel \
             ramdisk=userland/hello \
-            --cmdline "$ARGS_OPEN loader_return_after=15"
+            --cmdline "$ARGS_OPEN hello_wait=45 loader_return_after=15"
           set +e
           QEMU_ESP=1 qemu/run.sh 60 2>&1 | tee logs/qemu-xnu-return.log
           qemu_status=${PIPESTATUS[0]}
@@ -190,7 +215,7 @@ jobs:
           xnuloader/mkpayload.py -o qemu/payload.bin \
             kernel=hakios-kernel \
             ramdisk=userland/hello \
-            --cmdline "$ARGS_OPEN cpus=4 loader_return_after=15"
+            --cmdline "$ARGS_OPEN cpus=4 hello_wait=45 loader_return_after=15"
           set +e
           QEMU_SMP=4 QEMU_ESP=1 qemu/run.sh 75 2>&1 | tee logs/qemu-psci-smp-return.log
           qemu_status=${PIPESTATUS[0]}

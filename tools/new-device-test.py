@@ -23,6 +23,9 @@ from fdtbuild import cells, compat, fdt  # noqa: E402
 TOOL = os.path.join(HERE, "new-device.py")
 REFERENCE_DTB = os.path.join(ROOT, "devices", "redwood", "prebuilt", "device-tree.dtb")
 REFERENCE_ARGS = os.path.join(ROOT, "devices", "redwood", "soc.args")
+if not (os.path.isfile(REFERENCE_DTB) and os.path.isfile(REFERENCE_ARGS)):
+    print("new-device-test: skipped (the private reference-device repository is not checked out; set HAKIOS_SYNC_TOKEN)")
+    sys.exit(0)
 failures = []
 
 

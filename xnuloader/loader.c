@@ -2663,6 +2663,12 @@ parse_payload(struct payload_info *pi, int verbose)
 				return 0;
 			}
 		}
+		for (uint32_t i = name_len + 1; i < sizeof(e->name); i++) {
+			if (e->name[i] != 0) {
+				print("payload entry name has nonzero bytes after its NUL: not used\n");
+				return 0;
+			}
+		}
 		memcpy(entry_name, e->name, name_len);
 		entry_name[name_len] = 0;
 		if (verbose) {

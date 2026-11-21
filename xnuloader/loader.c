@@ -4389,6 +4389,11 @@ payload_kernel_version(void)
 				return NULL;
 			}
 		}
+		for (uint32_t i = name_len + 1; i < sizeof(e->name); i++) {
+			if (e->name[i] != 0) {
+				return NULL;
+			}
+		}
 		memcpy(name, e->name, name_len);
 		name[name_len] = 0;
 		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;

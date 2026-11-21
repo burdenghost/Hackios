@@ -2690,7 +2690,7 @@ parse_payload(struct payload_info *pi, int verbose)
 		entry_name[name_len] = 0;
 		uint16_t entry_bit = payload_known_entry_bit(entry_name);
 		if (entry_bit != 0 && (seen_entries & entry_bit) != 0) {
-			print("duplicate payload entry '%s': not used\\n", entry_name);
+			print("duplicate payload entry '%s': not used\n", entry_name);
 			return 0;
 		}
 		seen_entries |= entry_bit;

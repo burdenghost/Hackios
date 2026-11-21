@@ -199,6 +199,7 @@ psci_smp_start_cpu(int cpu)
 	do {
 		stage = os_atomic_load(&psci_smp_cpu_stage[cpu], acquire);
 		if (stage >= PSCI_SMP_CPU_RUNNING) {
+			psci_smp_note(" joined the scheduler\n", cpu);
 			return KERN_SUCCESS;
 		}
 		/* memory, not this processor's copy of it */
@@ -351,8 +352,10 @@ psci_smp_stop_others(void)
 			}
 			now = mach_absolute_time();
 		}
-		if (os_atomic_load(&psci_smp_cpu_stage[cpu], acquire) != PSCI_SMP_CPU_OFF &&
-		    psci_call(PSCI_AFFINITY_INFO, cdp->cpu_phys_id, 0, 0) != PSCI_AFFINITY_OFF) {
+		if (os_atomic_load(&psci_smp_cpu_stage[cpu], acquire) == PSCI_SMP_CPU_OFF &&
+		    psci_call(PSCI_AFFINITY_INFO, cdp->cpu_phys_id, 0, 0) == PSCI_AFFINITY_OFF) {
+			psci_smp_note(" stopped (PSCI AFFINITY_INFO=OFF)\n", cpu);
+		} else {
 			psci_smp_note(" did not stop: it is left running\n", cpu);
 		}
 	}

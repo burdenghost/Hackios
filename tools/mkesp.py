@@ -54,8 +54,8 @@ def entries(data):
             name = name_bytes.decode("ascii")
         except UnicodeDecodeError:
             raise ValueError("entry name at offset %d is not ASCII" % at)
-        if not name or name in out:
-            raise ValueError("empty or duplicate entry name %r" % name)
+        if not name or name in out or any(ord(c) < 0x20 or ord(c) > 0x7e for c in name):
+            raise ValueError("empty, duplicate, or non-printable entry name %r" % name)
 
         data_at = at + ENTRY_HEADER_SIZE
         padded = (length + 15) & ~15

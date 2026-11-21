@@ -49,6 +49,8 @@ def entries(data):
             break
         if reserved != 0:
             raise ValueError("entry at offset %d has nonzero reserved field" % at)
+        if b"\0" not in raw_name:
+            raise ValueError("entry name at offset %d is not NUL-terminated" % at)
         name_bytes = raw_name.split(b"\0", 1)[0]
         try:
             name = name_bytes.decode("ascii")

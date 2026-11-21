@@ -2593,6 +2593,17 @@ payload_walk_size(uint32_t header_size)
 }
 
 static int
+payload_text_terminated(const uint8_t *text, uint32_t size)
+{
+	for (uint32_t i = 0; i < size; i++) {
+		if (text[i] == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int
 parse_payload(struct payload_info *pi, int verbose)
 {
 	struct payload_header *ph = (struct payload_header *)PAYLOAD_BASE;
@@ -2610,19 +2621,30 @@ parse_payload(struct payload_info *pi, int verbose)
 	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
 	while (p + sizeof(struct payload_entry) <= pend) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
-		const char *text = (const char *)(p + sizeof(*e));
+		const uint8_t *text = p + sizeof(*e);
+		char entry_name[sizeof(e->name) + 1];
 		if (e->name[0] == 0) {
 			break;
 		}
+		/* A fixed-width payload name is not necessarily a C string. */
+		memcpy(entry_name, e->name, sizeof(e->name));
+		entry_name[sizeof(e->name)] = 0;
 		if (verbose) {
-			print("payload entry '%s' size %x\n", e->name, (uint64_t)e->size);
+			print("payload entry '%s' size %x\\n", entry_name, (uint64_t)e->size);
 		}
 		/*
-		 * An entry that claims more bytes than are left is a torn or made-up payload: the ramdisk copy would read
-		 * past it, and the 32-bit rounding below would wrap. Not booted, as with a payload of the wrong magic.
+		 * Validate data and 16-byte padding with 64-bit arithmetic before using or advancing past an entry.
 		 */
-		if ((uint64_t)e->size > (uint64_t)(pend - (p + sizeof(*e)))) {
-			print("payload entry is larger than the payload (size %x): not used\n", (uint64_t)e->size);
+		uint64_t remaining = (uint64_t)(pend - text);
+		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
+		if ((uint64_t)e->size > remaining || padded > remaining) {
+			print("payload entry exceeds the payload boundary (size %x): not used\\n", (uint64_t)e->size);
+			return 0;
+		}
+		if ((str_eq(e->name, "cmdline") || str_eq(e->name, "physbase") ||
+		     str_eq(e->name, "rdres") || str_eq(e->name, "kernel.ver") ||
+		     str_eq(e->name, "checkpoint")) && !payload_text_terminated(text, e->size)) {
+			print("payload text entry is not NUL-terminated: not used\\n");
 			return 0;
 		}
 		if (str_eq(e->name, "ramdisk")) {
@@ -2647,7 +2669,7 @@ parse_payload(struct payload_info *pi, int verbose)
 		} else if (str_eq(e->name, "usb")) {
 			pi->usb_mode = 1;                         /* stay in the loader and take commands over USB */
 		}
-		p += sizeof(*e) + ((e->size + 15) & ~15u);
+		p = text + padded;
 	}
 	return 1;
 }
@@ -4269,17 +4291,19 @@ payload_kernel_version(void)
 	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
 	while (p + sizeof(struct payload_entry) <= pend) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
-
+		const uint8_t *text = p + sizeof(*e);
+		uint64_t remaining = (uint64_t)(pend - text);
+		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if (e->name[0] == 0) {
 			break;
 		}
-		if ((uint64_t)e->size > (uint64_t)(pend - (p + sizeof(*e)))) {
+		if ((uint64_t)e->size > remaining || padded > remaining) {
 			break;
 		}
 		if (str_eq(e->name, "kernel.ver")) {
-			return (const char *)(p + sizeof(*e));
+			return payload_text_terminated(text, e->size) ? (const char *)text : NULL;
 		}
-		p += sizeof(*e) + ((e->size + 15) & ~15u);
+		p = text + padded;
 	}
 	return NULL;
 }

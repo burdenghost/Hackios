@@ -108,7 +108,7 @@ try:
          struct.pack("<16sII", b"kernel", 0, 1) + b"\0" * 24),
          "nonzero reserved field"),
         ("noncanonical-name.bin", raw_payload("noncanonical-name.bin",
-         b"kernel\0garbage" + b"\0" * 3 + struct.pack("<II", 0, 0) + b"\0" * 24),
+         b"kernel\0garbage" + b"\0" * 2 + struct.pack("<II", 0, 0) + b"\0" * 24),
          "nonzero bytes after its NUL"),
     ]
     for i, (label, path, reason) in enumerate(malformed, 8):

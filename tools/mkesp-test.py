@@ -72,11 +72,40 @@ try:
     r = run(os.path.join(work, "esp4"), nokernel, "--loader", loader)
     check("a payload with no kernel is refused", r.returncode != 0 and "no kernel" in r.stderr, r.stderr)
 
+    # Structurally valid but larger than the loader's 63 MiB payload area.
     big = os.path.join(work, "big.bin")
-    kbody = struct.pack("<16sII", b"kernel", 0, 0) + b"\0" * 24
-    open(big, "wb").write(struct.pack("<II", 0x50554E58, len(kbody)) + kbody + b"\0" * (63 * 1024 * 1024 + 4096))
+    big_kernel = b"k" * (63 * 1024 * 1024 + 4096)
+    kbody = struct.pack("<16sII", b"kernel", len(big_kernel), 0) + big_kernel
+    kbody += b"\0" * (-len(big_kernel) % 16) + b"\0" * 24
+    open(big, "wb").write(struct.pack("<II", 0x50554E58, len(kbody)) + kbody)
     r = run(os.path.join(work, "esp5"), big, "--loader", loader)
-    check("a payload over the loader's 63 MiB is refused, and says why", r.returncode != 0 and "too big" in r.stderr, r.stderr)
+    check("a valid payload over the loader's 63 MiB is refused, and says why",
+          r.returncode != 0 and "too big" in r.stderr, r.stderr)
+
+    def raw_payload(name, body, declared=None):
+        path = os.path.join(work, name)
+        if declared is None:
+            declared = len(body)
+        open(path, "wb").write(struct.pack("<II", 0x50554E58, declared) + body)
+        return path
+
+    malformed = [
+        ("declared-too-large.bin", raw_payload("declared-too-large.bin", b"\0" * 24, 40),
+         "declared payload size"),
+        ("truncated-entry.bin", raw_payload("truncated-entry.bin",
+         struct.pack("<16sII", b"kernel", 64, 0) + b"x"), "exceeds payload boundary"),
+        ("truncated-padding.bin", raw_payload("truncated-padding.bin",
+         struct.pack("<16sII", b"kernel", 1, 0) + b"x" + b"\0" * 24), "exceeds payload boundary"),
+        ("missing-terminator.bin", raw_payload("missing-terminator.bin",
+         struct.pack("<16sII", b"kernel", 1, 0) + b"x" + b"\0" * 15), "no 24-byte terminator"),
+        ("unterminated-text.bin", raw_payload("unterminated-text.bin",
+         struct.pack("<16sII", b"cmdline", 3, 0) + b"abc" + b"\0" * 13 + b"\0" * 24),
+         "not NUL-terminated"),
+    ]
+    for i, (label, path, reason) in enumerate(malformed, 8):
+        r = run(os.path.join(work, "bad-esp-%d" % i), path, "--loader", loader)
+        check("malformed payload %s is refused (%s)" % (label, reason),
+              r.returncode != 0 and reason in r.stderr, r.stderr)
 
     notefi = os.path.join(work, "notefi")
     open(notefi, "wb").write(b"ELF\0" * 8)

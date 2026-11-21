@@ -95,7 +95,8 @@ jobs:
           set -euo pipefail
           mkdir -p logs
           set +e
-          make qemu-open SECS=90 JOBS="$JOBS" 2>&1 | tee logs/qemu-open.log
+          # Linux QEMU CI does not need an Apple dSYM bundle; keep the unstripped kernel for diagnostics.
+          make qemu-open SECS=90 JOBS="$JOBS" BUILD_DSYM=0 2>&1 | tee logs/qemu-open.log
           make_status=${PIPESTATUS[0]}
           set -e
           # qemu/run.sh deliberately times out the guest after SECS; a boot is proven by

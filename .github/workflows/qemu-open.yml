@@ -179,6 +179,34 @@ jobs:
             echo "QEMU returned $qemu_status after producing the expected XNU return markers."
           fi
 
+      - name: Exercise multi-core PSCI startup and shutdown before XNU return
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Four virtual CPUs and cpus=4 make XNU start three secondary cores through PSCI.
+          # The timed orderly return then requires each secondary to report OFF through
+          # PSCI AFFINITY_INFO before the boot CPU resumes the UEFI loader.
+          ARGS_OPEN="$(tools/hakios-config.py args --defconfig defconfig)"
+          xnuloader/mkpayload.py -o qemu/payload.bin \
+            kernel=hakios-kernel \
+            ramdisk=userland/hello \
+            --cmdline "$ARGS_OPEN cpus=4 loader_return_after=15"
+          set +e
+          QEMU_SMP=4 QEMU_ESP=1 qemu/run.sh 75 2>&1 | tee logs/qemu-psci-smp-return.log
+          qemu_status=${PIPESTATUS[0]}
+          set -e
+          grep -Fq "payload.bin on the volume this loader was started from" logs/qemu-psci-smp-return.log
+          for cpu in 1 2 3; do
+            grep -Fq "psci: cpu $cpu joined the scheduler" logs/qemu-psci-smp-return.log
+            grep -Fq "psci: cpu $cpu stopped (PSCI AFFINITY_INFO=OFF)" logs/qemu-psci-smp-return.log
+          done
+          grep -Fq "loader_return_after expired" logs/qemu-psci-smp-return.log
+          grep -Fq "kernel returned: log at" logs/qemu-psci-smp-return.log
+          echo "All three secondary CPUs joined XNU, reported PSCI OFF, and XNU returned to UEFI."
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU returned $qemu_status after producing the expected SMP return markers."
+          fi
+
       - name: Upload boot and build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -189,6 +217,7 @@ jobs:
             logs/qemu-esp.log
             logs/qemu-return-selftest.log
             logs/qemu-xnu-return.log
+            logs/qemu-psci-smp-return.log
             xnu-build.log
             xnu-deps/*.log
           if-no-files-found: warn

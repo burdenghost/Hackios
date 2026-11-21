@@ -52,6 +52,8 @@ def entries(data):
         if b"\0" not in raw_name:
             raise ValueError("entry name at offset %d is not NUL-terminated" % at)
         name_bytes = raw_name.split(b"\0", 1)[0]
+        if any(raw_name[len(name_bytes) + 1:]):
+            raise ValueError("entry name at offset %d has nonzero bytes after its NUL" % at)
         try:
             name = name_bytes.decode("ascii")
         except UnicodeDecodeError:

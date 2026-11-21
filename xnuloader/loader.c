@@ -2596,6 +2596,22 @@ payload_text_terminated(const uint8_t *text, uint32_t size)
 	return 0;
 }
 
+/* Bits for payload entries that the loader consumes; unknown entries are ignored. */
+static uint16_t
+payload_known_entry_bit(const char *name)
+{
+	if (str_eq(name, "kernel")) return 1u << 0;
+	if (str_eq(name, "ramdisk")) return 1u << 1;
+	if (str_eq(name, "cmdline")) return 1u << 2;
+	if (str_eq(name, "physbase")) return 1u << 3;
+	if (str_eq(name, "resident")) return 1u << 4;
+	if (str_eq(name, "rdres")) return 1u << 5;
+	if (str_eq(name, "kernel.ver")) return 1u << 6;
+	if (str_eq(name, "checkpoint")) return 1u << 7;
+	if (str_eq(name, "usb")) return 1u << 8;
+	return 0;
+}
+
 static int
 parse_payload(struct payload_info *pi, int verbose)
 {
@@ -2603,6 +2619,7 @@ parse_payload(struct payload_info *pi, int verbose)
 	const uint8_t *p, *pend;
 	const uint64_t max_body = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(*ph);
 	int terminated = 0;
+	uint16_t seen_entries = 0;
 
 	memset(pi, 0, sizeof(*pi));
 	pi->cmdline = "";
@@ -2671,6 +2688,12 @@ parse_payload(struct payload_info *pi, int verbose)
 		}
 		memcpy(entry_name, e->name, name_len);
 		entry_name[name_len] = 0;
+		uint16_t entry_bit = payload_known_entry_bit(entry_name);
+		if (entry_bit != 0 && (seen_entries & entry_bit) != 0) {
+			print("duplicate payload entry '%s': not used\\n", entry_name);
+			return 0;
+		}
+		seen_entries |= entry_bit;
 		if (verbose) {
 			print("payload entry '%s' size %x\n", entry_name, (uint64_t)e->size);
 		}
@@ -4348,6 +4371,7 @@ payload_kernel_version(void)
 	const uint64_t max_body = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(*ph);
 	const uint8_t *p, *pend;
 	const char *version = NULL;
+	uint16_t seen_entries = 0;
 
 	if (ph->magic != PAYLOAD_MAGIC || (uint64_t)ph->size > max_body) {
 		return NULL;
@@ -4396,6 +4420,11 @@ payload_kernel_version(void)
 		}
 		memcpy(name, e->name, name_len);
 		name[name_len] = 0;
+		uint16_t entry_bit = payload_known_entry_bit(name);
+		if (entry_bit != 0 && (seen_entries & entry_bit) != 0) {
+			return NULL;
+		}
+		seen_entries |= entry_bit;
 		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if ((uint64_t)e->size > remaining || padded > remaining) {
 			return NULL;

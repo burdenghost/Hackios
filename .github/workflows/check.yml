@@ -1,14 +1,21 @@
 name: check
-
 on: [push, pull_request]
-
 permissions:
   contents: read
-
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Confirm check workflow is scheduled
-        run: echo "Repository check workflow scheduling is operational"
+      - name: The SoC, device and UEFI repositories devices/manifest.conf names
+        # they are private repositories of their own: a token that can read them, in the secret HAKIOS_SYNC_TOKEN; without it the
+        # checks of the reference phone's configuration and the made device pages are skipped, and say so
+        env:
+          TOKEN: ${{ secrets.HAKIOS_SYNC_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+            python3 tools/hakios-device.py sync
+          else
+            echo "no HAKIOS_SYNC_TOKEN: only the common repository is checked"
+          fi

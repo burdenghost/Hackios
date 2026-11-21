@@ -83,6 +83,8 @@ static bool     psci_smp_boot_wanted;           /* it was not the boot processor
 static bool     psci_smp_boot_busy;             /* ... and has begun to */
 static bool     psci_smp_stopping;              /* every other core switches itself off */
 
+static void psci_smp_note(const char *what, int cpu);
+
 static int64_t
 psci_call(uint64_t function, uint64_t arg1, uint64_t arg2, uint64_t arg3)
 {

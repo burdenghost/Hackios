@@ -2639,13 +2639,13 @@ parse_payload(struct payload_info *pi, int verbose)
 		uint64_t remaining = (uint64_t)(pend - entry_data);
 		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if ((uint64_t)e->size > remaining || padded > remaining) {
-			print("payload entry exceeds the payload boundary (size %x): not used\\n", (uint64_t)e->size);
+			print("payload entry exceeds the payload boundary (size %x): not used\n", (uint64_t)e->size);
 			return 0;
 		}
 		if ((str_eq(e->name, "cmdline") || str_eq(e->name, "physbase") ||
 		     str_eq(e->name, "rdres") || str_eq(e->name, "kernel.ver") ||
 		     str_eq(e->name, "checkpoint")) && !payload_text_terminated(entry_data, e->size)) {
-			print("payload text entry is not NUL-terminated: not used\\n");
+			print("payload text entry is not NUL-terminated: not used\n");
 			return 0;
 		}
 		if (str_eq(e->name, "ramdisk")) {

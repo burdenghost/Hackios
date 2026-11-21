@@ -75,8 +75,8 @@ jobs:
 
       - name: Locate AArch64 UEFI firmware for QEMU
         run: |
-          EFI=$(find /usr/share -type f \\( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \\) -print -quit)
-          VARS=$(find /usr/share -type f \\( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \\) -print -quit)
+          EFI=$(find /usr/share -type f \( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \) -print -quit)
+          VARS=$(find /usr/share -type f \( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \) -print -quit)
           test -n "$EFI"
           test -n "$VARS"
           echo "QEMU_EFI=$EFI" >> "$GITHUB_ENV"

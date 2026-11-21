@@ -53,14 +53,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            autoconf automake bison build-essential clang curl flex git lld \
-            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar uuid-dev xz-utils
+            autoconf automake bison build-essential clang curl fakeroot flex git libtinfo6 libxml2 lld \
+            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar uuid-dev xz-utils zip
 
-      - name: Install Theos Linux toolchain
-        env:
-          CI: "1"
+      - name: Install Theos and its Linux toolchain without the optional SDK auto-installer
         run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          # The convenience installer also fetches its latest patched SDKs through the GitHub API.
+          # This build installs its pinned iPhoneOS 16.5 SDK in the next step, so skip that lookup.
+          git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/toolchain"
+          curl -fL --retry 3 --retry-delay 2 \
+            https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz \
+            | tar -xJf - -C "$THEOS/toolchain/"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -x "$THEOS/toolchain/linux/iphone/bin/ld"
 

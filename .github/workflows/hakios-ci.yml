@@ -1,0 +1,35 @@
+name: HackiOS CI
+
+on:
+  push:
+    branches:
+      - main
+      - "chatgpt/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hakios-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  payload-tests:
+    name: Payload validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile tools/mkesp.py tools/mkesp-test.py xnuloader/mkpayload.py
+
+      - name: Run ESP and payload regression tests
+        run: |
+          python3 tools/mkesp-test.py

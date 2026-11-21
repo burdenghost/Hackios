@@ -84,6 +84,8 @@ struct segment_command_64 {
 static efi_system_table *ST;
 static efi_boot_services *BS;
 static efi_handle IMAGE;
+/* Exact byte count for a payload loaded from a file or USB; zero for a shim-preloaded payload. */
+static uint64_t payload_available_bytes;
 
 static char log_buf[32768];
 static uint32_t log_len;
@@ -2614,6 +2616,11 @@ parse_payload(struct payload_info *pi, int verbose)
 		print("no payload at %x (magic %x)\n", PAYLOAD_BASE, (uint64_t)ph->magic);
 		return 0;
 	}
+	if (payload_available_bytes != 0 &&
+	    (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph))) {
+		print("payload header size does not match bytes received: not used\\n");
+		return 0;
+	}
 	/*
 	 * The size in the header is not trusted past what the payload region can hold (the file's size is not
 	 * known here), so a wild value cannot send the walk through memory that is not the payload.
@@ -3908,6 +3915,7 @@ fb_command(char *cmd)
 			 */
 			if (!to_ramdisk) {
 				*(volatile uint32_t *)dest = 0;
+				payload_available_bytes = 0;
 			}
 			uint32_t magic_held = 0;
 			int magic_taken = 0;
@@ -3933,11 +3941,20 @@ fb_command(char *cmd)
 			}
 			usb_data_timeout = 0;
 			if (got == total) {
+				if (!to_ramdisk && magic_taken && magic_held == PAYLOAD_MAGIC) {
+					const struct payload_header *ph = (const struct payload_header *)dest;
+					if (total < sizeof(*ph) || ph->size != total - sizeof(*ph)) {
+						fb_reply("FAIL", "payload size does not match download");
+						return;
+					}
+				}
 				if (magic_taken) {
 					*(volatile uint32_t *)dest = magic_held;
 				}
 				if (to_ramdisk) {
 					resident_rd_size = total;
+				} else {
+					payload_available_bytes = total;
 				}
 				fb_reply("OKAY", "");
 			} else {
@@ -4268,6 +4285,13 @@ load_payload_from_volume(void)
 		BS->free_pages(PAYLOAD_BASE, pages);
 		goto close;
 	}
+	if (((const struct payload_header *)PAYLOAD_BASE)->size != size - sizeof(struct payload_header)) {
+		volume_payload_note = "\\EFI\\hakios\\payload.bin header size does not match the file";
+		((volatile struct payload_header *)PAYLOAD_BASE)->magic = 0;
+		BS->free_pages(PAYLOAD_BASE, pages);
+		goto close;
+	}
+	payload_available_bytes = size;
 	volume_payload_bytes = size;
 close:
 	file->close(file);
@@ -4286,6 +4310,10 @@ payload_kernel_version(void)
 	const struct payload_header *ph = (const struct payload_header *)PAYLOAD_BASE;
 
 	if (ph->magic != PAYLOAD_MAGIC) {
+		return NULL;
+	}
+	if (payload_available_bytes != 0 &&
+	    (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph))) {
 		return NULL;
 	}
 	/* (the same limits as parse_payload: a header size or an entry size that reaches past the payload ends the walk) */

@@ -5,7 +5,7 @@ usage: sparse-split.py IMAGE OUTDIR [MAX_BYTES]          (MAX_BYTES: the phone's
 
 Each piece holds one stretch of IMAGE as RAW blocks (all-zero blocks as FILL, which costs nothing to send), and
 DONT_CARE before and after it, so that every piece describes the whole image and the bootloader writes only its own
-stretch: `fastboot flash PART piece-00.simg`, then 01, ... in any order. This is what fastboot does by itself with an
+stretch: invoke the fastboot utility with the `flash PART piece-00.simg` subcommand, then 01, ... in any order. This is what fastboot does by itself with an
 image larger than one download, done here because Google's fastboot for Windows runs out of memory on an 8 GB one.
 
 What is checked: the pieces put together (RAW and FILL where they say, nothing else) are IMAGE again, byte for byte;

@@ -39,8 +39,8 @@ def entries(data):
             raise ValueError("truncated entry header at offset %d" % at)
         raw_name = data[at:at + 16]
         length, reserved = struct.unpack_from("<II", data, at + 16)
-        if raw_name == b"\\0" * 16:
-            if data[at:end] != b"\\0" * (end - at):
+        if raw_name == b"\0" * 16:
+            if data[at:end] != b"\0" * (end - at):
                 raise ValueError("malformed payload terminator or trailing bytes")
             if end - at != ENTRY_HEADER_SIZE:
                 raise ValueError("payload terminator must be the final 24 bytes")
@@ -49,7 +49,7 @@ def entries(data):
             break
         if reserved != 0:
             raise ValueError("entry at offset %d has nonzero reserved field" % at)
-        name_bytes = raw_name.split(b"\\0", 1)[0]
+        name_bytes = raw_name.split(b"\0", 1)[0]
         try:
             name = name_bytes.decode("ascii")
         except UnicodeDecodeError:
@@ -64,7 +64,7 @@ def entries(data):
             raise ValueError("entry %r data or padding exceeds payload boundary" % name)
         value_end = data_at + length
         value = data[data_at:value_end]
-        if name in TEXT_ENTRIES and b"\\0" not in value:
+        if name in TEXT_ENTRIES and b"\0" not in value:
             raise ValueError("text entry %r is not NUL-terminated within its declared size" % name)
         out[name] = value
         at = next_at
@@ -105,7 +105,7 @@ def main():
         sys.exit("mkesp: the payload is %d bytes and the loader's payload region holds %d: the root image is too big for "
                  "this way of booting (the big Darwin image goes in over USB, `xl ramdisk`)" %
                  (len(data), PAYLOAD_LIMIT))
-    version = parts.get("kernel.ver", b"").split(b"\\0", 1)[0].decode("utf-8", errors="replace")
+    version = parts.get("kernel.ver", b"").split(b"\0", 1)[0].decode("utf-8", errors="replace")
     with open(loader, "rb") as f:
         head = f.read(2)
     if head != b"MZ":
@@ -117,8 +117,8 @@ def main():
     shutil.copyfile(loader, os.path.join(boot, "BOOTAA64.EFI"))
     with open(os.path.join(hakios, "payload.bin"), "wb") as f:
         f.write(data)
-    with open(os.path.join(hakios, "kernel.ver"), "w", newline="\\n") as f:
-        f.write((version or "unknown") + "\\n")
+    with open(os.path.join(hakios, "kernel.ver"), "w", newline="\n") as f:
+        f.write((version or "unknown") + "\n")
 
     print("mkesp: %s" % args.outdir)
     print("  EFI/BOOT/BOOTAA64.EFI    %9d bytes  the loader" % os.path.getsize(loader))

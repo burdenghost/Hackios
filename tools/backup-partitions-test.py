@@ -74,7 +74,10 @@ if m:
     sys.stdout.buffer.write(data(m.group(1)))
     if mode == "never":                         # one that never holds still: every look is different
         with open(node_file[m.group(1)], "r+b") as f:
-            f.seek(0); f.write(os.urandom(1))
+            f.seek(0)
+            first = f.read(1)[0]
+            f.seek(0)
+            f.write(bytes([(first + 1) % 256]))
     sys.exit(0)
 sys.stderr.write("stand-in adb: no such command: %s\n" % cmd); sys.exit(3)
 '''

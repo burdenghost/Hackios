@@ -54,7 +54,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             autoconf automake bison build-essential clang curl flex git lld \
-            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar xz-utils
+            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar uuid-dev xz-utils
 
       - name: Install Theos Linux toolchain
         env:

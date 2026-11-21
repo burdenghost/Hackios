@@ -1,6 +1,19 @@
 name: HackiOS QEMU open boot
 
 on:
+  push:
+    branches:
+      - "chatgpt/**"
+    paths:
+      - ".github/workflows/qemu-open.yml"
+      - "Makefile"
+      - "configs/**"
+      - "xnuloader/**"
+      - "xnu/**"
+      - "xnu-deps/**"
+      - "tools/**"
+      - "userland/src/**"
+      - "qemu/**"
   pull_request:
     branches:
       - main
@@ -60,14 +73,22 @@ jobs:
           ln -s "$RUNNER_TEMP/theos-sdks/iPhoneOS16.5.sdk" "$THEOS/sdks/iPhoneOS16.5.sdk"
           test -f "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include/Availability.h"
 
-      - name: Verify toolchain and QEMU firmware paths
+      - name: Locate AArch64 UEFI firmware for QEMU
+        run: |
+          EFI=$(find /usr/share -type f \\( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \\) -print -quit)
+          VARS=$(find /usr/share -type f \\( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \\) -print -quit)
+          test -n "$EFI"
+          test -n "$VARS"
+          echo "QEMU_EFI=$EFI" >> "$GITHUB_ENV"
+          echo "QEMU_VARS=$VARS" >> "$GITHUB_ENV"
+
+      - name: Verify toolchain and QEMU
         run: |
           command -v clang
           command -v lld-link
           command -v qemu-system-aarch64
-          test -f /usr/share/AAVMF/AAVMF_CODE.fd
-          test -f /usr/share/AAVMF/AAVMF_VARS.fd
-          "$THEOS/toolchain/linux/iphone/bin/ld" -v
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -x "$THEOS/toolchain/linux/iphone/bin/ld"
 
       - name: Build and boot the Apple-free open kernel
         shell: bash

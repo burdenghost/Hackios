@@ -33,3 +33,11 @@ jobs:
       - name: Run ESP and payload regression tests
         run: |
           python3 tools/mkesp-test.py
+
+      - name: Build the complete ARM64 UEFI loader
+        run: |
+          command -v clang
+          command -v lld-link
+          PLACEHOLDER=1 bash xnuloader/mkidentity.sh
+          bash xnuloader/build.sh
+          file xnuloader/loader.efi

@@ -4339,30 +4339,61 @@ static const char *
 payload_kernel_version(void)
 {
 	const struct payload_header *ph = (const struct payload_header *)PAYLOAD_BASE;
+	const uint64_t max_body = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(*ph);
+	const uint8_t *p, *pend;
+	const char *version = NULL;
 
-	if (ph->magic != PAYLOAD_MAGIC) {
+	if (ph->magic != PAYLOAD_MAGIC || (uint64_t)ph->size > max_body) {
 		return NULL;
 	}
 	if (payload_available_bytes != 0 &&
 	    (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph))) {
 		return NULL;
 	}
-	/* (the same limits as parse_payload: a header size or an entry size that reaches past the payload ends the walk) */
-	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
-	while (p + sizeof(struct payload_entry) <= pend) {
+	p = (const uint8_t *)(ph + 1);
+	pend = p + ph->size;
+	while ((uint64_t)(pend - p) >= sizeof(struct payload_entry)) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
 		const uint8_t *entry_data = p + sizeof(*e);
-		const char *text = (const char *)entry_data;
+		char name[sizeof(e->name) + 1];
+		uint32_t name_len = 0;
 		uint64_t remaining = (uint64_t)(pend - entry_data);
-		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
-		if (e->name[0] == 0) {
-			break;
+		uint64_t padded;
+
+		while (name_len < sizeof(e->name) && e->name[name_len] != 0) {
+			name_len++;
 		}
+		if (name_len == 0) {
+			if ((uint64_t)(pend - p) != sizeof(*e)) {
+				return NULL;
+			}
+			for (uint32_t i = 0; i < sizeof(*e); i++) {
+				if (((const uint8_t *)e)[i] != 0) {
+					return NULL;
+				}
+			}
+			return version;
+		}
+		if (name_len == sizeof(e->name) || e->reserved != 0) {
+			return NULL;
+		}
+		for (uint32_t i = 0; i < name_len; i++) {
+			unsigned char ch = (unsigned char)e->name[i];
+			if (ch < 0x20 || ch > 0x7e) {
+				return NULL;
+			}
+		}
+		memcpy(name, e->name, name_len);
+		name[name_len] = 0;
+		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if ((uint64_t)e->size > remaining || padded > remaining) {
-			break;
+			return NULL;
 		}
-		if (str_eq(e->name, "kernel.ver")) {
-			return payload_text_terminated(entry_data, e->size) ? (const char *)text : NULL;
+		if (str_eq(name, "kernel.ver")) {
+			if (!payload_text_terminated(entry_data, e->size)) {
+				return NULL;
+			}
+			version = (const char *)entry_data;
 		}
 		p = entry_data + padded;
 	}

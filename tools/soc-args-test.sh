@@ -6,6 +6,10 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 dtb="$root/devices/redwood/prebuilt/device-tree.dtb"
 want="$root/devices/redwood/soc.args"
+if [ ! -f "$dtb" ] || [ ! -f "$want" ]; then
+    echo "soc-args-test: skipped (the private reference-device repository is not checked out; set HAKIOS_SYNC_TOKEN)"
+    exit 0
+fi
 got=$(python3 "$root/tools/soc-args.py" "$dtb")
 
 # the values the kernel carries as defaults (drivers/modem/hakios.mpss.c, hakios.ipa.c): the generator

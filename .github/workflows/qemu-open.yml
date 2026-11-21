@@ -1,0 +1,122 @@
+name: HackiOS QEMU open boot
+
+on:
+  push:
+    branches:
+      - "chatgpt/**"
+    paths:
+      - ".github/workflows/qemu-open.yml"
+      - "Makefile"
+      - "configs/**"
+      - "xnuloader/**"
+      - "xnu/**"
+      - "xnu-deps/**"
+      - "tools/**"
+      - "userland/src/**"
+      - "qemu/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/qemu-open.yml"
+      - "Makefile"
+      - "configs/**"
+      - "xnuloader/**"
+      - "xnu/**"
+      - "xnu-deps/**"
+      - "tools/**"
+      - "userland/src/**"
+      - "qemu/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hakios-qemu-open-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qemu-open:
+    name: Build XNU and verify open-kernel boot in QEMU
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      THEOS: ${{ runner.temp }}/theos
+      JOBS: "2"
+      QEMU_TB_MB: "128"
+    steps:
+      - name: Check out HackiOS
+        uses: actions/checkout@v4
+
+      - name: Install host build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake bison build-essential clang curl flex git lld \
+            m4 make perl python3 qemu-efi-aarch64 qemu-system-arm rsync tar xz-utils
+
+      - name: Install Theos Linux toolchain
+        env:
+          CI: "1"
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -x "$THEOS/toolchain/linux/iphone/bin/ld"
+
+      - name: Install the exact iPhoneOS 16.5 SDK required by this XNU tree
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
+          git -C "$RUNNER_TEMP/theos-sdks" sparse-checkout set iPhoneOS16.5.sdk
+          rm -rf "$THEOS/sdks/iPhoneOS16.5.sdk"
+          ln -s "$RUNNER_TEMP/theos-sdks/iPhoneOS16.5.sdk" "$THEOS/sdks/iPhoneOS16.5.sdk"
+          test -f "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include/Availability.h"
+
+      - name: Locate AArch64 UEFI firmware for QEMU
+        run: |
+          EFI=$(find /usr/share \( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \) -print -quit)
+          VARS=$(find /usr/share \( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \) -print -quit)
+          test -n "$EFI"
+          test -n "$VARS"
+          echo "QEMU_EFI=$EFI" >> "$GITHUB_ENV"
+          echo "QEMU_VARS=$VARS" >> "$GITHUB_ENV"
+
+      - name: Verify toolchain and QEMU
+        run: |
+          command -v clang
+          command -v lld-link
+          command -v qemu-system-aarch64
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -x "$THEOS/toolchain/linux/iphone/bin/ld"
+
+      - name: Build and boot the Apple-free open kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          set +e
+          make qemu-open SECS=90 JOBS="$JOBS" 2>&1 | tee logs/qemu-open.log
+          make_status=${PIPESTATUS[0]}
+          set -e
+          # qemu/run.sh deliberately times out the guest after SECS; a boot is proven by
+          # the loader banner, kernel banner, and PID 1's userspace output in the serial log.
+          grep -Fq "== XNULOADER v3 ==" logs/qemu-open.log
+          grep -Fq "hello hakios-kernel!" logs/qemu-open.log
+          grep -Fq "Hello from user space on Darwin!" logs/qemu-open.log
+          grep -Fq "kernel.ver=" logs/qemu-open.log
+          echo "QEMU open boot reached the loader, kernel, and userspace markers."
+          if [ "$make_status" -ne 0 ] && [ "$make_status" -ne 124 ]; then
+            echo "make qemu-open returned $make_status after producing the expected boot markers."
+          fi
+
+      - name: Upload boot and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hakios-qemu-open-logs
+          path: |
+            logs/qemu-open.log
+            xnu-build.log
+            xnu-deps/*.log
+          if-no-files-found: warn
+          retention-days: 14

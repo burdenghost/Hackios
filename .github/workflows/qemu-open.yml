@@ -116,9 +116,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p logs
+          ARGS_OPEN="$(tools/hakios-config.py args --defconfig defconfig) hello_wait=120"
           set +e
           # Linux QEMU CI does not need an Apple dSYM bundle; keep the unstripped kernel for diagnostics.
-          make qemu-open SECS=90 JOBS="$JOBS" BUILD_DSYM=0 2>&1 | tee logs/qemu-open.log
+          # Keep PID 1 alive so the minimal kernel does not panic after the demo process exits.
+          make qemu-open SECS=90 JOBS="$JOBS" BUILD_DSYM=0 ARGS_OPEN="$ARGS_OPEN" 2>&1 | tee logs/qemu-open.log
           make_status=${PIPESTATUS[0]}
           set -e
           # qemu/run.sh deliberately times out the guest after SECS; a boot is proven by
@@ -188,7 +190,7 @@ jobs:
           xnuloader/mkpayload.py -o qemu/payload.bin \
             kernel=hakios-kernel \
             ramdisk=userland/hello \
-            --cmdline "$ARGS_OPEN loader_return_after=15"
+            --cmdline "$ARGS_OPEN hello_wait=45 loader_return_after=15"
           set +e
           QEMU_ESP=1 qemu/run.sh 60 2>&1 | tee logs/qemu-xnu-return.log
           qemu_status=${PIPESTATUS[0]}
@@ -213,7 +215,7 @@ jobs:
           xnuloader/mkpayload.py -o qemu/payload.bin \
             kernel=hakios-kernel \
             ramdisk=userland/hello \
-            --cmdline "$ARGS_OPEN cpus=4 loader_return_after=15"
+            --cmdline "$ARGS_OPEN cpus=4 hello_wait=45 loader_return_after=15"
           set +e
           QEMU_SMP=4 QEMU_ESP=1 qemu/run.sh 75 2>&1 | tee logs/qemu-psci-smp-return.log
           qemu_status=${PIPESTATUS[0]}

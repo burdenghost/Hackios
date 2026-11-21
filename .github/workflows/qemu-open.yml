@@ -72,12 +72,30 @@ jobs:
           ln -s "$RUNNER_TEMP/theos-sdks/iPhoneOS16.5.sdk" "$THEOS/sdks/iPhoneOS16.5.sdk"
           test -f "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include/Availability.h"
 
-      - name: Locate AArch64 UEFI firmware for QEMU
+      - name: Locate a matching AArch64 UEFI firmware pair for QEMU
         run: |
-          EFI=$(find /usr/share \( -name AAVMF_CODE.fd -o -name QEMU_EFI.fd \) -print -quit)
-          VARS=$(find /usr/share \( -name AAVMF_VARS.fd -o -name QEMU_VARS.fd \) -print -quit)
-          test -n "$EFI"
-          test -n "$VARS"
+          EFI=
+          VARS=
+          for pair in \
+            "/usr/share/AAVMF/AAVMF_CODE.fd|/usr/share/AAVMF/AAVMF_VARS.fd" \
+            "/usr/share/edk2/aarch64/QEMU_EFI.fd|/usr/share/edk2/aarch64/QEMU_VARS.fd" \
+            "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd|/usr/share/qemu-efi-aarch64/QEMU_VARS.fd"; do
+            code="${pair%%|*}"
+            vars="${pair#*|}"
+            if [ -f "$code" ] && [ -f "$vars" ]; then
+              EFI=$code
+              VARS=$vars
+              break
+            fi
+          done
+          test -n "$EFI" && test -n "$VARS"
+          code_size=$(wc -c < "$EFI" | tr -d ' ')
+          vars_size=$(wc -c < "$VARS" | tr -d ' ')
+          test "$code_size" = "$vars_size" || {
+            echo "UEFI pflash images differ in size: CODE=$code_size VARS=$vars_size"
+            exit 1
+          }
+          echo "Using matching UEFI firmware pair: $EFI ($code_size bytes)"
           echo "QEMU_EFI=$EFI" >> "$GITHUB_ENV"
           echo "QEMU_VARS=$VARS" >> "$GITHUB_ENV"
 

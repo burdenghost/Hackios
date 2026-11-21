@@ -28,7 +28,7 @@ check "a port sends only its differences" "soc_aoss=0x1000000 soc_extra=0x5 " "$
 
 # the same file with Windows line endings
 sed 's/$/\r/' "$tmp/port.args" > "$tmp/port-crlf.args"
-got=$(soc_only_changes "$tmp/port-crlf.args" | tr '\n' ' ')
+got=$(SOC_DEFAULTS=$defaults soc_only_changes "$tmp/port-crlf.args" | tr '\n' ' ')
 check "CRLF line endings: same result" "soc_aoss=0x1000000 soc_extra=0x5 " "$got"
 check "CRLF line endings: no CR in what is sent" "0" "$(printf '%s' "$got" | tr -cd '\r' | wc -c | tr -d ' ')"
 

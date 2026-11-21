@@ -95,7 +95,7 @@ try:
         ("truncated-entry.bin", raw_payload("truncated-entry.bin",
          struct.pack("<16sII", b"kernel", 64, 0) + b"x"), "exceeds payload boundary"),
         ("truncated-padding.bin", raw_payload("truncated-padding.bin",
-         struct.pack("<16sII", b"kernel", 1, 0) + b"x" + b"\0" * 24), "exceeds payload boundary"),
+         struct.pack("<16sII", b"kernel", 1, 0) + b"x" + b"\0" * 24), "truncated entry header"),
         ("missing-terminator.bin", raw_payload("missing-terminator.bin",
          struct.pack("<16sII", b"kernel", 1, 0) + b"x" + b"\0" * 15), "no 24-byte terminator"),
         ("unterminated-text.bin", raw_payload("unterminated-text.bin",

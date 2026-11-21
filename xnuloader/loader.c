@@ -2621,7 +2621,8 @@ parse_payload(struct payload_info *pi, int verbose)
 	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
 	while (p + sizeof(struct payload_entry) <= pend) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
-		const uint8_t *text = p + sizeof(*e);
+		const uint8_t *entry_data = p + sizeof(*e);
+		const char *text = (const char *)entry_data;
 		char entry_name[sizeof(e->name) + 1];
 		if (e->name[0] == 0) {
 			break;
@@ -2630,12 +2631,12 @@ parse_payload(struct payload_info *pi, int verbose)
 		memcpy(entry_name, e->name, sizeof(e->name));
 		entry_name[sizeof(e->name)] = 0;
 		if (verbose) {
-			print("payload entry '%s' size %x\\n", entry_name, (uint64_t)e->size);
+			print("payload entry '%s' size %x\n", entry_name, (uint64_t)e->size);
 		}
 		/*
 		 * Validate data and 16-byte padding with 64-bit arithmetic before using or advancing past an entry.
 		 */
-		uint64_t remaining = (uint64_t)(pend - text);
+		uint64_t remaining = (uint64_t)(pend - entry_data);
 		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if ((uint64_t)e->size > remaining || padded > remaining) {
 			print("payload entry exceeds the payload boundary (size %x): not used\\n", (uint64_t)e->size);
@@ -2643,7 +2644,7 @@ parse_payload(struct payload_info *pi, int verbose)
 		}
 		if ((str_eq(e->name, "cmdline") || str_eq(e->name, "physbase") ||
 		     str_eq(e->name, "rdres") || str_eq(e->name, "kernel.ver") ||
-		     str_eq(e->name, "checkpoint")) && !payload_text_terminated(text, e->size)) {
+		     str_eq(e->name, "checkpoint")) && !payload_text_terminated(entry_data, e->size)) {
 			print("payload text entry is not NUL-terminated: not used\\n");
 			return 0;
 		}
@@ -2669,7 +2670,7 @@ parse_payload(struct payload_info *pi, int verbose)
 		} else if (str_eq(e->name, "usb")) {
 			pi->usb_mode = 1;                         /* stay in the loader and take commands over USB */
 		}
-		p = text + padded;
+		p = entry_data + padded;
 	}
 	return 1;
 }
@@ -4291,8 +4292,9 @@ payload_kernel_version(void)
 	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
 	while (p + sizeof(struct payload_entry) <= pend) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
-		const uint8_t *text = p + sizeof(*e);
-		uint64_t remaining = (uint64_t)(pend - text);
+		const uint8_t *entry_data = p + sizeof(*e);
+		const char *text = (const char *)entry_data;
+		uint64_t remaining = (uint64_t)(pend - entry_data);
 		uint64_t padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
 		if (e->name[0] == 0) {
 			break;
@@ -4301,9 +4303,9 @@ payload_kernel_version(void)
 			break;
 		}
 		if (str_eq(e->name, "kernel.ver")) {
-			return payload_text_terminated(text, e->size) ? (const char *)text : NULL;
+			return payload_text_terminated(entry_data, e->size) ? (const char *)text : NULL;
 		}
-		p = text + padded;
+		p = entry_data + padded;
 	}
 	return NULL;
 }

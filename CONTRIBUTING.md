@@ -38,7 +38,9 @@
 
 ## CI
 
-`ci/github-check.yml` is a GitHub Actions workflow (Python compiles, scripts parse, no Apple
-files or pictures in the tree, the kernel patch applies to Apple's tag). Enable it by copying it
-to `.github/workflows/check.yml`; a push that adds it needs a token with the `workflow` scope,
-or do it in the web editor.
+`ci/github-check.yml` is the source template for the GitHub Actions checks. The active workflow
+is `.github/workflows/check.yml`; keep the two files in sync when changing CI. The workflow runs
+on pushes and pull requests and checks Python and shell syntax, payload/layout tests, provenance,
+documentation, driver/device consistency, and that the XNU patch applies to Apple's tag.
+Some device-specific checks require the optional `HAKIOS_SYNC_TOKEN` secret to read the project's
+separate device and SoC repositories.

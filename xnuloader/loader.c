@@ -84,6 +84,8 @@ struct segment_command_64 {
 static efi_system_table *ST;
 static efi_boot_services *BS;
 static efi_handle IMAGE;
+/* Exact byte count for a payload loaded from a file or USB; zero for a shim-preloaded payload. */
+static uint64_t payload_available_bytes;
 
 static char log_buf[32768];
 static uint32_t log_len;
@@ -2583,19 +2585,24 @@ parse_number(const char *c, unsigned base)
 	return v;
 }
 
-/* How many bytes after the header the walk over a payload's entries may cover: the header's size, but never more than fits */
-static uint64_t
-payload_walk_size(uint32_t header_size)
+static int
+payload_text_terminated(const uint8_t *text, uint32_t size)
 {
-	uint64_t most = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(struct payload_header);
-
-	return header_size < most ? header_size : most;
+	for (uint32_t i = 0; i < size; i++) {
+		if (text[i] == 0) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static int
 parse_payload(struct payload_info *pi, int verbose)
 {
 	struct payload_header *ph = (struct payload_header *)PAYLOAD_BASE;
+	const uint8_t *p, *pend;
+	const uint64_t max_body = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(*ph);
+	int terminated = 0;
 
 	memset(pi, 0, sizeof(*pi));
 	pi->cmdline = "";
@@ -2603,51 +2610,111 @@ parse_payload(struct payload_info *pi, int verbose)
 		print("no payload at %x (magic %x)\n", PAYLOAD_BASE, (uint64_t)ph->magic);
 		return 0;
 	}
+	if ((uint64_t)ph->size > max_body ||
+	    (payload_available_bytes != 0 &&
+	     (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph)))) {
+		print("payload header size is invalid or does not match bytes received: not used\n");
+		return 0;
+	}
+
 	/*
-	 * The size in the header is not trusted past what the payload region can hold (the file's size is not
-	 * known here), so a wild value cannot send the walk through memory that is not the payload.
+	 * File and USB downloads have an exact byte count checked above. A payload
+	 * placed in RAM by the boot shim has no accompanying length, so its declared
+	 * size must fit wholly inside the reserved payload region as well.
 	 */
-	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
-	while (p + sizeof(struct payload_entry) <= pend) {
+	p = (const uint8_t *)(ph + 1);
+	pend = p + ph->size;
+	while ((uint64_t)(pend - p) >= sizeof(struct payload_entry)) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
-		const char *text = (const char *)(p + sizeof(*e));
-		if (e->name[0] == 0) {
+		const uint8_t *entry_data = p + sizeof(*e);
+		const char *text = (const char *)entry_data;
+		char entry_name[sizeof(e->name) + 1];
+		uint64_t remaining = (uint64_t)(pend - entry_data);
+		uint64_t padded;
+		uint32_t name_len = 0;
+
+		while (name_len < sizeof(e->name) && e->name[name_len] != 0) {
+			name_len++;
+		}
+		if (name_len == 0) {
+			/* The terminator is one all-zero 24-byte entry, and must be last. */
+			if ((uint64_t)(pend - p) != sizeof(*e)) {
+				print("payload terminator is malformed or not final: not used\n");
+				return 0;
+			}
+			for (uint32_t i = 0; i < sizeof(*e); i++) {
+				if (((const uint8_t *)e)[i] != 0) {
+					print("payload terminator is not all zero: not used\n");
+					return 0;
+				}
+			}
+			terminated = 1;
+			p = pend;
 			break;
 		}
-		if (verbose) {
-			print("payload entry '%s' size %x\n", e->name, (uint64_t)e->size);
-		}
-		/*
-		 * An entry that claims more bytes than are left is a torn or made-up payload: the ramdisk copy would read
-		 * past it, and the 32-bit rounding below would wrap. Not booted, as with a payload of the wrong magic.
-		 */
-		if ((uint64_t)e->size > (uint64_t)(pend - (p + sizeof(*e)))) {
-			print("payload entry is larger than the payload (size %x): not used\n", (uint64_t)e->size);
+		if (name_len == sizeof(e->name) || e->reserved != 0) {
+			print("payload entry name or reserved field is invalid: not used\n");
 			return 0;
 		}
-		if (str_eq(e->name, "ramdisk")) {
-			pi->ramdisk = p + sizeof(*e);             /* becomes /dev/md0, the root device */
+		for (uint32_t i = 0; i < name_len; i++) {
+			unsigned char c = (unsigned char)e->name[i];
+			if (c < 0x20 || c > 0x7e) {
+				print("payload entry name is not printable ASCII: not used\n");
+				return 0;
+			}
+		}
+		for (uint32_t i = name_len + 1; i < sizeof(e->name); i++) {
+			if (e->name[i] != 0) {
+				print("payload entry name has nonzero bytes after its NUL: not used\n");
+				return 0;
+			}
+		}
+		memcpy(entry_name, e->name, name_len);
+		entry_name[name_len] = 0;
+		if (verbose) {
+			print("payload entry '%s' size %x\n", entry_name, (uint64_t)e->size);
+		}
+
+		/* Validate data and 16-byte padding before using or advancing past an entry. */
+		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
+		if ((uint64_t)e->size > remaining || padded > remaining) {
+			print("payload entry exceeds the payload boundary (size %x): not used\n", (uint64_t)e->size);
+			return 0;
+		}
+		if ((str_eq(entry_name, "cmdline") || str_eq(entry_name, "physbase") ||
+		     str_eq(entry_name, "rdres") || str_eq(entry_name, "kernel.ver") ||
+		     str_eq(entry_name, "checkpoint") || str_eq(entry_name, "usb")) &&
+		    !payload_text_terminated(entry_data, e->size)) {
+			print("payload text entry is not NUL-terminated: not used\n");
+			return 0;
+		}
+		if (str_eq(entry_name, "ramdisk")) {
+			pi->ramdisk = entry_data;
 			pi->ramdisk_size = e->size;
-		} else if (str_eq(e->name, "kernel")) {
-			pi->kernel = p + sizeof(*e);
+		} else if (str_eq(entry_name, "kernel")) {
+			pi->kernel = entry_data;
 			pi->kernel_size = e->size;
-		} else if (str_eq(e->name, "cmdline")) {
+		} else if (str_eq(entry_name, "cmdline")) {
 			pi->cmdline = text;
-		} else if (str_eq(e->name, "physbase")) {
+		} else if (str_eq(entry_name, "physbase")) {
 			pi->forced_base = parse_number(text, 16); /* testing aid; must be free RAM */
-		} else if (str_eq(e->name, "resident")) {
-			pi->resident = p + sizeof(*e);            /* the image xl ramdisk would send: a boot with no host */
+		} else if (str_eq(entry_name, "resident")) {
+			pi->resident = entry_data;               /* the image xl ramdisk would send: a boot with no host */
 			pi->resident_size = e->size;
-		} else if (str_eq(e->name, "rdres")) {
+		} else if (str_eq(entry_name, "rdres")) {
 			pi->resident_rd = parse_number(text, 16); /* e.g. loaded there by QEMU; see RESIDENT_RD_OFFSET */
-		} else if (str_eq(e->name, "kernel.ver")) {
-			pi->kernel_version = text;                /* printed under the banner; the kernel gets it as hakios_kver */
-		} else if (str_eq(e->name, "checkpoint")) {
+		} else if (str_eq(entry_name, "kernel.ver")) {
+			pi->kernel_version = text;               /* printed under the banner; the kernel gets it as hakios_kver */
+		} else if (str_eq(entry_name, "checkpoint")) {
 			pi->checkpoint = parse_number(text, 10);  /* where the kernel should stop and come back */
-		} else if (str_eq(e->name, "usb")) {
+		} else if (str_eq(entry_name, "usb")) {
 			pi->usb_mode = 1;                         /* stay in the loader and take commands over USB */
 		}
-		p += sizeof(*e) + ((e->size + 15) & ~15u);
+		p = entry_data + padded;
+	}
+	if (!terminated || p != pend) {
+		print("payload has no complete final terminator: not used\n");
+		return 0;
 	}
 	return 1;
 }
@@ -3885,6 +3952,7 @@ fb_command(char *cmd)
 			 */
 			if (!to_ramdisk) {
 				*(volatile uint32_t *)dest = 0;
+				payload_available_bytes = 0;
 			}
 			uint32_t magic_held = 0;
 			int magic_taken = 0;
@@ -3910,11 +3978,20 @@ fb_command(char *cmd)
 			}
 			usb_data_timeout = 0;
 			if (got == total) {
+				if (!to_ramdisk && magic_taken && magic_held == PAYLOAD_MAGIC) {
+					const struct payload_header *ph = (const struct payload_header *)dest;
+					if (total < sizeof(*ph) || ph->size != total - sizeof(*ph)) {
+						fb_reply("FAIL", "payload size does not match download");
+						return;
+					}
+				}
 				if (magic_taken) {
 					*(volatile uint32_t *)dest = magic_held;
 				}
 				if (to_ramdisk) {
 					resident_rd_size = total;
+				} else {
+					payload_available_bytes = total;
 				}
 				fb_reply("OKAY", "");
 			} else {
@@ -4245,6 +4322,13 @@ load_payload_from_volume(void)
 		BS->free_pages(PAYLOAD_BASE, pages);
 		goto close;
 	}
+	if (((const struct payload_header *)PAYLOAD_BASE)->size != size - sizeof(struct payload_header)) {
+		volume_payload_note = "\\EFI\\hakios\\payload.bin header size does not match the file";
+		((volatile struct payload_header *)PAYLOAD_BASE)->magic = 0;
+		BS->free_pages(PAYLOAD_BASE, pages);
+		goto close;
+	}
+	payload_available_bytes = size;
 	volume_payload_bytes = size;
 close:
 	file->close(file);
@@ -4261,25 +4345,68 @@ static const char *
 payload_kernel_version(void)
 {
 	const struct payload_header *ph = (const struct payload_header *)PAYLOAD_BASE;
+	const uint64_t max_body = PAYLOAD_MAX_SIZE - 0x100000ULL - sizeof(*ph);
+	const uint8_t *p, *pend;
+	const char *version = NULL;
 
-	if (ph->magic != PAYLOAD_MAGIC) {
+	if (ph->magic != PAYLOAD_MAGIC || (uint64_t)ph->size > max_body) {
 		return NULL;
 	}
-	/* (the same limits as parse_payload: a header size or an entry size that reaches past the payload ends the walk) */
-	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
-	while (p + sizeof(struct payload_entry) <= pend) {
+	if (payload_available_bytes != 0 &&
+	    (payload_available_bytes < sizeof(*ph) || ph->size != payload_available_bytes - sizeof(*ph))) {
+		return NULL;
+	}
+	p = (const uint8_t *)(ph + 1);
+	pend = p + ph->size;
+	while ((uint64_t)(pend - p) >= sizeof(struct payload_entry)) {
 		const struct payload_entry *e = (const struct payload_entry *)p;
+		const uint8_t *entry_data = p + sizeof(*e);
+		char name[sizeof(e->name) + 1];
+		uint32_t name_len = 0;
+		uint64_t remaining = (uint64_t)(pend - entry_data);
+		uint64_t padded;
 
-		if (e->name[0] == 0) {
-			break;
+		while (name_len < sizeof(e->name) && e->name[name_len] != 0) {
+			name_len++;
 		}
-		if ((uint64_t)e->size > (uint64_t)(pend - (p + sizeof(*e)))) {
-			break;
+		if (name_len == 0) {
+			if ((uint64_t)(pend - p) != sizeof(*e)) {
+				return NULL;
+			}
+			for (uint32_t i = 0; i < sizeof(*e); i++) {
+				if (((const uint8_t *)e)[i] != 0) {
+					return NULL;
+				}
+			}
+			return version;
 		}
-		if (str_eq(e->name, "kernel.ver")) {
-			return (const char *)(p + sizeof(*e));
+		if (name_len == sizeof(e->name) || e->reserved != 0) {
+			return NULL;
 		}
-		p += sizeof(*e) + ((e->size + 15) & ~15u);
+		for (uint32_t i = 0; i < name_len; i++) {
+			unsigned char ch = (unsigned char)e->name[i];
+			if (ch < 0x20 || ch > 0x7e) {
+				return NULL;
+			}
+		}
+		for (uint32_t i = name_len + 1; i < sizeof(e->name); i++) {
+			if (e->name[i] != 0) {
+				return NULL;
+			}
+		}
+		memcpy(name, e->name, name_len);
+		name[name_len] = 0;
+		padded = ((uint64_t)e->size + 15ULL) & ~15ULL;
+		if ((uint64_t)e->size > remaining || padded > remaining) {
+			return NULL;
+		}
+		if (str_eq(name, "kernel.ver")) {
+			if (!payload_text_terminated(entry_data, e->size)) {
+				return NULL;
+			}
+			version = (const char *)entry_data;
+		}
+		p = entry_data + padded;
 	}
 	return NULL;
 }

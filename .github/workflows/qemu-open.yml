@@ -109,6 +109,27 @@ jobs:
             echo "make qemu-open returned $make_status after producing the expected boot markers."
           fi
 
+      - name: Boot the same payload from the UEFI FAT volume
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          QEMU_ESP=1 qemu/run.sh 90 2>&1 | tee logs/qemu-esp.log
+          qemu_status=${PIPESTATUS[0]}
+          set -e
+          # This second path exercises the loader's own filesystem reader instead of QEMU's
+          # memory-loader device. The payload must be found on the EFI volume and reach userspace.
+          grep -Fq "== XNULOADER v3 ==" logs/qemu-esp.log
+          grep -Fq "payload: " logs/qemu-esp.log
+          grep -Fq "payload.bin on the volume this loader was started from" logs/qemu-esp.log
+          grep -Fq "hello hakios-kernel!" logs/qemu-esp.log
+          grep -Fq "Hello from user space on Darwin!" logs/qemu-esp.log
+          grep -Fq "kernel.ver=" logs/qemu-esp.log
+          echo "UEFI ESP boot reached the loader, kernel, and userspace markers."
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU returned $qemu_status after producing the expected ESP boot markers."
+          fi
+
       - name: Upload boot and build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -116,6 +137,7 @@ jobs:
           name: hakios-qemu-open-logs
           path: |
             logs/qemu-open.log
+            logs/qemu-esp.log
             xnu-build.log
             xnu-deps/*.log
           if-no-files-found: warn

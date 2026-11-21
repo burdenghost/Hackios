@@ -154,6 +154,31 @@ jobs:
             echo "QEMU returned $qemu_status after producing the expected self-test marker."
           fi
 
+      - name: Exercise XNU's real loader_return path
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Unlike checkpoint=999, this enters XNU. Its early-boot timer calls
+          # loader_return(), which must return through the loader's saved UEFI context.
+          # One CPU isolates the direct return path from PSCI secondary-core shutdown.
+          ARGS_OPEN="$(tools/hakios-config.py args --defconfig defconfig)"
+          xnuloader/mkpayload.py -o qemu/payload.bin \
+            kernel=hakios-kernel \
+            ramdisk=userland/hello \
+            --cmdline "$ARGS_OPEN loader_return_after=15"
+          set +e
+          QEMU_ESP=1 qemu/run.sh 60 2>&1 | tee logs/qemu-xnu-return.log
+          qemu_status=${PIPESTATUS[0]}
+          set -e
+          grep -Fq "payload.bin on the volume this loader was started from" logs/qemu-xnu-return.log
+          grep -Fq "kernel returned: log at" logs/qemu-xnu-return.log
+          grep -Fq "loader_return_after expired" logs/qemu-xnu-return.log
+          grep -Fq "== KERNEL LOG ==" logs/qemu-xnu-return.log
+          echo "XNU's timed loader_return completed and the UEFI loader resumed."
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU returned $qemu_status after producing the expected XNU return markers."
+          fi
+
       - name: Upload boot and build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,6 +188,7 @@ jobs:
             logs/qemu-open.log
             logs/qemu-esp.log
             logs/qemu-return-selftest.log
+            logs/qemu-xnu-return.log
             xnu-build.log
             xnu-deps/*.log
           if-no-files-found: warn

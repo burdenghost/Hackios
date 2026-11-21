@@ -2622,8 +2622,8 @@ parse_payload(struct payload_info *pi, int verbose)
 		return 0;
 	}
 	/*
-	 * The size in the header is not trusted past what the payload region can hold (the file's size is not
-	 * known here), so a wild value cannot send the walk through memory that is not the payload.
+	 * File and USB downloads have an exact byte count checked above. A payload placed in RAM by the boot shim
+	 * has no accompanying length, so the walk is still capped at the reserved payload-region boundary.
 	 */
 	const uint8_t *p = (const uint8_t *)(ph + 1), *pend = p + payload_walk_size(ph->size);
 	while (p + sizeof(struct payload_entry) <= pend) {
